@@ -109,7 +109,7 @@ Each 16-TPU layer is functionally split:
 - [x] Storage subsystem design
 - [x] Network architecture
 - [ ] PCB schematics
-- [ ] 3D CAD models
+- [x] [3D CAD models](designs/column-tpu-tower/3d-models)
 - [ ] Prototype build
 - [ ] Thermal validation
 
