@@ -111,7 +111,7 @@ Each 16-TPU layer is functionally split:
 - [ ] PCB schematics
 - [ ] 3D CAD models
 - [ ] Prototype build
-- [ ] Thermal validation
+- [x] Thermal validation ([Report](designs/column-tpu-tower/THERMAL_VALIDATION_REPORT.md))
 
 ## License
 
