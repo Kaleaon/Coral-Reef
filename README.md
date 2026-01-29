@@ -115,7 +115,7 @@ Each 16-TPU layer is functionally split:
 
 ## License
 
-TBD
+This project is licensed under the Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
