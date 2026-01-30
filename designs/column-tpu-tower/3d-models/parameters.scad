@@ -11,16 +11,14 @@ inner_core_diameter = 80;
 inner_core_radius = inner_core_diameter / 2;
 
 // Vertical Dimensions
-base_height = 60;
+base_height = 80; // Updated to match Diagram
 top_height = 80;
-layer_spacing = 80; // Center-to-center vertical distance
+// Middle section is 520mm. 6 layers. 520/6 = 86.66...
+layer_spacing = 86.66;
 tray_thickness = 3;
 num_layers = 6;
 
 // Calculated Total Height
-// Base + (Layers * Spacing) + Top?
-// No, Base + Layers Stack + Top
-// Let's assume the layers stack on the rails.
 total_height = base_height + (num_layers * layer_spacing) + top_height;
 
 // Structural Rails
