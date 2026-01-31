@@ -1,36 +1,45 @@
-# PCB Design: 16-TPU Carrier Board
+# PCB Design: 16-TPU Carrier Board with Compute Cluster
 
 ## Overview
 
-This directory contains the design files and specifications for the custom carrier board used in the Coral-Reef Column TPU Tower. Each board hosts 16 Google Coral M.2 Accelerators (Key E or Key B+M) and acts as a single "Mind" layer in the tower.
+This directory contains the design files and specifications for the custom carrier board used in the Coral-Reef Column TPU Tower. Each board acts as a self-contained "Mind" layer, hosting not just the AI accelerators but also a local compute cluster to drive them.
 
 ## Architecture
 
-The carrier board implements a high-density PCIe switch fabric to connect 16 TPU modules to a single upstream PCIe x16 link.
+The carrier board implements a hybrid architecture combining a high-density PCIe switch fabric with a local cluster of 4 powerful CPU modules. This ensures "full/complete computation" capabilities on each disc, minimizing reliance on external hosts.
 
 ### Key Components
 
-1.  **PCIe Packet Switch (PEX 8748/8749)**
-    *   **Upstream:** x16 PCIe Gen 3.0 interface to host (via edge connector or cable).
-    *   **Downstream:** 16x PCIe Gen 2.0 x1 links to M.2 sockets.
-    *   **Features:** Low latency, non-blocking architecture, peer-to-peer support.
+1.  **Compute Cluster (4x CPU Units)**
+    *   **Type:** System-on-Module (SOM) (e.g., RK3588, CM4-variant, or equivalent high-perf ARM/RISC-V).
+    *   **Function:** Host operating system, model orchestration, data preprocessing, and general logic.
+    *   **Interface:** PCIe 3.0 x4 per CPU module to the central switch.
+    *   **Power:** Dedicated power rails (approx 10-15W per module).
 
-2.  **M.2 Sockets (16x)**
+2.  **PCIe Packet Switch (PEX 8748/8749)**
+    *   **Fabric:** Connects the 4 CPU units and 16 M.2 TPUs in a non-blocking fabric.
+    *   **Configuration:**
+        *   4x Ports (x4 width) -> CPU Modules.
+        *   16x Ports (x1 width) -> M.2 TPU Sockets.
+        *   1x Port (x4/x8) -> Optional Inter-layer Uplink.
+    *   **Features:** DMA, Peer-to-Peer transfer (TPU <-> TPU, CPU <-> TPU).
+
+3.  **M.2 Sockets (16x)**
     *   **Type:** M.2 Key E (2230) or Key B+M (2280).
     *   **Interface:** PCIe x1 Gen 2.0 per socket.
-    *   **Power:** 3.3V supply (max 3A per socket for peak loads).
+    *   **Power:** 3.3V supply (max 3A per socket).
 
-3.  **Power Distribution Network (PDN)**
-    *   **Input:** 12V DC (from main PSU).
+4.  **Power Distribution Network (PDN)**
+    *   **Input:** 12V DC (Main Bus).
     *   **Regulation:**
-        *   High-efficiency Buck Converters (12V -> 3.3V) for TPUs (Total ~60W).
-        *   LDOs for clean analog supply (if needed).
-        *   Power sequencing logic for soft-start.
+        *   Buck Converters for CPU Cluster (5V/4A per module or custom rails).
+        *   Buck Converters for TPUs (3.3V, Total ~60W).
+        *   Management MCU power.
+    *   **Total Power:** ~120W-150W peak per layer (requires active cooling).
 
-4.  **Management MCU (ESP32-S3)**
-    *   **Function:** Thermal monitoring, fan control, power telemetry.
-    *   **Interface:** I2C/SMBus to PCIe switch and power regulators.
-    *   **Connectivity:** USB-Serial for external management.
+5.  **Management MCU (ESP32-S3)**
+    *   **Function:** Thermal monitoring, fan control, power sequencing, cluster health check.
+    *   **Interface:** I2C/SMBus.
 
 ## Netlist Generation
 
@@ -46,6 +55,6 @@ The output file `netlist.csv` contains the full connectivity map (Net Name, Ref 
 
 ## Design Considerations
 
-*   **Signal Integrity:** PCIe traces must be impedance matched (85-100 ohm differential) and length-matched within pairs.
-*   **Thermal Management:** The PCB requires heavy copper planes (2oz+) for heat dissipation and power delivery.
-*   **Layer Stackup:** Recommended 6-layer or 8-layer stackup for proper signal isolation and power planes.
+*   **Signal Integrity:** High-speed PCIe routing is critical. 4x CPUs + 16x TPUs creates a dense routing challenge in the central area.
+*   **Thermal Management:** The addition of 4 CPU modules significantly increases thermal density. The "Chimney" airflow must be unobstructed by the taller CPU components.
+*   **Placement:** CPU modules likely placed in the quadrants between TPU banks to distribute heat.

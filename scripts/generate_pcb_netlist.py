@@ -6,6 +6,10 @@ This script generates a schematic netlist for the Coral-Reef 16-TPU Carrier Boar
 It programmatically defines the connectivity between the PCIe switch, M.2 slots,
 power management system, and microcontroller.
 
+Updates:
+- Added 4x High-Performance CPU Modules (SOMs) per layer.
+- Connected CPUs to PCIe Switch (x4 lanes each).
+
 Output:
     designs/column-tpu-tower/pcb/netlist.csv
 """
@@ -47,8 +51,7 @@ class Net:
         pin = component.get_pin(pin_number)
         if pin:
             if pin.net:
-                # Disconnect from old net if needed, or warn
-                pass
+                pass # Already connected
             pin.net = self
             self.connections.append((component, pin))
         else:
@@ -81,48 +84,68 @@ class TPUCarrierBoardDesign:
 
         # 1. Instantiate Main Components
 
-        # PCIe Packet Switch (PEX8748 - simplified pinout for example)
-        # Assuming a BGA package, using logical names here
+        # PCIe Packet Switch (PEX8748 - 48 Lane / 12 Port)
         self.pcie_switch = self.add_component("U1", "PEX8748-BGA")
-        # Define Upstream Port (x16)
-        for i in range(16):
-            self.pcie_switch.add_pin(f"US_TX_P{i}", f"UP_TX_P[{i}]")
-            self.pcie_switch.add_pin(f"US_TX_N{i}", f"UP_TX_N[{i}]")
-            self.pcie_switch.add_pin(f"US_RX_P{i}", f"UP_RX_P[{i}]")
-            self.pcie_switch.add_pin(f"US_RX_N{i}", f"UP_RX_N[{i}]")
 
-        # Define 16 Downstream Ports (x1 each) for TPUs
-        for port in range(16):
-            self.pcie_switch.add_pin(f"DS{port}_TX_P", f"DN_TX_P[{port}]")
-            self.pcie_switch.add_pin(f"DS{port}_TX_N", f"DN_TX_N[{port}]")
-            self.pcie_switch.add_pin(f"DS{port}_RX_P", f"DN_RX_P[{port}]")
-            self.pcie_switch.add_pin(f"DS{port}_RX_N", f"DN_RX_N[{port}]")
+        # Define Switch Ports
+        # Port 0-3: Reserved for CPUs (x4 each)
+        # Port 4-19: Reserved for TPUs (x1 each)
 
-        # 16 M.2 Connectors
+        # CPU Ports (x4 lanes each)
+        for cpu_idx in range(4):
+            for lane in range(4):
+                self.pcie_switch.add_pin(f"P{cpu_idx}_TX_P{lane}", f"SW_CPU{cpu_idx}_TX_P[{lane}]")
+                self.pcie_switch.add_pin(f"P{cpu_idx}_TX_N{lane}", f"SW_CPU{cpu_idx}_TX_N[{lane}]")
+                self.pcie_switch.add_pin(f"P{cpu_idx}_RX_P{lane}", f"SW_CPU{cpu_idx}_RX_P[{lane}]")
+                self.pcie_switch.add_pin(f"P{cpu_idx}_RX_N{lane}", f"SW_CPU{cpu_idx}_RX_N[{lane}]")
+
+        # TPU Ports (x1 lane each)
+        for tpu_idx in range(16):
+            port_num = 4 + tpu_idx # Start after CPU ports
+            self.pcie_switch.add_pin(f"DS{tpu_idx}_TX_P", f"SW_TPU{tpu_idx}_TX_P")
+            self.pcie_switch.add_pin(f"DS{tpu_idx}_TX_N", f"SW_TPU{tpu_idx}_TX_N")
+            self.pcie_switch.add_pin(f"DS{tpu_idx}_RX_P", f"SW_TPU{tpu_idx}_RX_P")
+            self.pcie_switch.add_pin(f"DS{tpu_idx}_RX_N", f"SW_TPU{tpu_idx}_RX_N")
+
+        # 4x CPU Modules (System-on-Module)
+        self.cpu_modules = []
+        for i in range(4):
+            cpu = self.add_component(f"SOM{i+1}", "RK3588-Compute-Module")
+            # Power
+            cpu.add_pin("VIN", "VIN_5V")
+            cpu.add_pin("GND", "GND")
+            # PCIe x4 Interface
+            for lane in range(4):
+                cpu.add_pin(f"PCIE_TX_P{lane}", f"TX_P{lane}")
+                cpu.add_pin(f"PCIE_TX_N{lane}", f"TX_N{lane}")
+                cpu.add_pin(f"PCIE_RX_P{lane}", f"RX_P{lane}")
+                cpu.add_pin(f"PCIE_RX_N{lane}", f"RX_N{lane}")
+            self.cpu_modules.append(cpu)
+
+        # 16x M.2 Connectors
         self.m2_slots = []
         for i in range(16):
-            # M.2 Key E Pinout (Simplified subset for PCIe)
-            # Pins: 1=GND, 2=3.3V, 3=USB_D+, 5=USB_D-, ...
-            # PCIe Lane 0: TX on 35/37, RX on 41/43 (Example)
             slot = self.add_component(f"J{i+1}", "M.2-KeyE-Socket")
             slot.add_pin("1", "GND")
             slot.add_pin("2", "3.3V")
-            slot.add_pin("3", "USB_D_P")
-            slot.add_pin("5", "USB_D_N")
-            slot.add_pin("35", "PETp0") # Transmit +
+            slot.add_pin("35", "PETp0") # Transmit + (Device TX)
             slot.add_pin("37", "PETn0") # Transmit -
-            slot.add_pin("41", "PERp0") # Receive +
+            slot.add_pin("41", "PERp0") # Receive + (Device RX)
             slot.add_pin("43", "PERn0") # Receive -
-            slot.add_pin("50", "PERST#")
-            slot.add_pin("52", "CLKREQ#")
-            slot.add_pin("54", "PEWAKE#")
             self.m2_slots.append(slot)
 
-        # Power Management (Simplified)
-        self.pmic_3v3 = self.add_component("U2", "TPS54xxx-Buck") # 12V to 3.3V
-        self.pmic_3v3.add_pin("IN", "VIN")
-        self.pmic_3v3.add_pin("OUT", "VOUT")
+        # Power Management
+        # 12V -> 3.3V (TPUs)
+        self.pmic_3v3 = self.add_component("U2", "TPS54xxx-Buck-3V3")
+        self.pmic_3v3.add_pin("IN", "VIN_12V")
+        self.pmic_3v3.add_pin("OUT", "VOUT_3V3")
         self.pmic_3v3.add_pin("GND", "GND")
+
+        # 12V -> 5V (CPUs)
+        self.pmic_5v = self.add_component("U4", "TPS54xxx-Buck-5V")
+        self.pmic_5v.add_pin("IN", "VIN_12V")
+        self.pmic_5v.add_pin("OUT", "VOUT_5V")
+        self.pmic_5v.add_pin("GND", "GND")
 
         # Management MCU (ESP32)
         self.mcu = self.add_component("U3", "ESP32-S3-WROOM")
@@ -131,82 +154,95 @@ class TPUCarrierBoardDesign:
         self.mcu.add_pin("3", "IO0_I2C_SDA")
         self.mcu.add_pin("4", "IO1_I2C_SCL")
 
-        # 2. Connect Components (The Wiring)
+
+        # 2. Connect Components
 
         # Power Rails
         self.connect_pins("GND",
-            [(self.pmic_3v3, "GND"), (self.mcu, "2")] +
-            [(slot, "1") for slot in self.m2_slots]
+            [(self.pmic_3v3, "GND"), (self.pmic_5v, "GND"), (self.mcu, "2")] +
+            [(slot, "1") for slot in self.m2_slots] +
+            [(cpu, "GND") for cpu in self.cpu_modules]
         )
         self.connect_pins("3.3V",
             [(self.pmic_3v3, "OUT"), (self.mcu, "1")] +
             [(slot, "2") for slot in self.m2_slots]
         )
-        self.connect_pins("12V_MAIN", [(self.pmic_3v3, "IN")])
+        self.connect_pins("5V_CPU",
+            [(self.pmic_5v, "OUT")] +
+            [(cpu, "VIN") for cpu in self.cpu_modules]
+        )
+        self.connect_pins("12V_MAIN", [(self.pmic_3v3, "IN"), (self.pmic_5v, "IN")])
 
-        # PCIe Connections (Switch <-> M.2 Slots)
+        # PCIe: CPU Modules <-> Switch (x4 Lanes each)
+        for i in range(4): # 4 CPUs
+            cpu = self.cpu_modules[i]
+            for lane in range(4):
+                # CPU TX -> Switch RX
+                self.connect_pins(f"PCIE_CPU{i}_LANE{lane}_TX", [
+                    (cpu, f"PCIE_TX_P{lane}"),
+                    (self.pcie_switch, f"P{i}_RX_P{lane}")
+                ])
+                self.connect_pins(f"PCIE_CPU{i}_LANE{lane}_TX_N", [
+                    (cpu, f"PCIE_TX_N{lane}"),
+                    (self.pcie_switch, f"P{i}_RX_N{lane}")
+                ])
+                # Switch TX -> CPU RX
+                self.connect_pins(f"PCIE_CPU{i}_LANE{lane}_RX", [
+                    (self.pcie_switch, f"P{i}_TX_P{lane}"),
+                    (cpu, f"PCIE_RX_P{lane}")
+                ])
+                self.connect_pins(f"PCIE_CPU{i}_LANE{lane}_RX_N", [
+                    (self.pcie_switch, f"P{i}_TX_N{lane}"),
+                    (cpu, f"PCIE_RX_N{lane}")
+                ])
+
+        # PCIe: Switch <-> TPUs (x1 Lane each)
         for i in range(16):
             slot = self.m2_slots[i]
-            # TX from Switch goes to RX on Slot
-            self.connect_pins(f"PCIE_LANE{i}_TX_P", [
+            # Switch TX -> TPU RX (PERp0)
+            self.connect_pins(f"PCIE_TPU{i}_RX", [
                 (self.pcie_switch, f"DS{i}_TX_P"),
-                (slot, "41") # PERp0 (RX on device side)
+                (slot, "41")
             ])
-            self.connect_pins(f"PCIE_LANE{i}_TX_N", [
+            self.connect_pins(f"PCIE_TPU{i}_RX_N", [
                 (self.pcie_switch, f"DS{i}_TX_N"),
-                (slot, "43") # PERn0
+                (slot, "43")
             ])
-            # RX on Switch comes from TX on Slot
-            self.connect_pins(f"PCIE_LANE{i}_RX_P", [
-                (self.pcie_switch, f"DS{i}_RX_P"),
-                (slot, "35") # PETp0 (TX on device side)
+            # TPU TX (PETp0) -> Switch RX
+            self.connect_pins(f"PCIE_TPU{i}_TX", [
+                (slot, "35"),
+                (self.pcie_switch, f"DS{i}_RX_P")
             ])
-            self.connect_pins(f"PCIE_LANE{i}_RX_N", [
-                (self.pcie_switch, f"DS{i}_RX_N"),
-                (slot, "37") # PETn0
+            self.connect_pins(f"PCIE_TPU{i}_TX_N", [
+                (slot, "37"),
+                (self.pcie_switch, f"DS{i}_RX_N")
             ])
 
-        # Management Bus (I2C)
-        # Connecting MCU to... well, let's say the Switch has I2C management
+        # Management I2C (MCU to Switch)
         self.pcie_switch.add_pin("SMB_CLK", "SMBus_CLK")
         self.pcie_switch.add_pin("SMB_DAT", "SMBus_DAT")
 
-        self.connect_pins("I2C_SCL", [
-            (self.mcu, "4"),
-            (self.pcie_switch, "SMB_CLK")
-        ])
-        self.connect_pins("I2C_SDA", [
-            (self.mcu, "3"),
-            (self.pcie_switch, "SMB_DAT")
-        ])
+        self.connect_pins("I2C_SCL", [(self.mcu, "4"), (self.pcie_switch, "SMB_CLK")])
+        self.connect_pins("I2C_SDA", [(self.mcu, "3"), (self.pcie_switch, "SMB_DAT")])
 
         print(f"Design completed: {len(self.components)} components, {len(self.nets)} nets.")
 
     def export_netlist(self, filepath: str):
         print(f"Exporting netlist to {filepath}...")
-
-        # Ensure directory exists
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
         with open(filepath, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['Net Name', 'Component Ref', 'Pin Number', 'Pin Name', 'Part Type'])
-
-            # Sort nets for consistent output
             for net_name in sorted(self.nets.keys()):
                 net = self.nets[net_name]
                 for comp, pin in net.connections:
                     writer.writerow([net.name, comp.ref_des, pin.number, pin.name, comp.part_type])
-
         print("Export complete.")
 
 if __name__ == "__main__":
     design = TPUCarrierBoardDesign()
     design.generate()
-
     output_path = "designs/column-tpu-tower/pcb/netlist.csv"
-    # Adjust path if running from script directory or root
     if not os.path.exists("designs") and os.path.exists("../designs"):
         output_path = "../designs/column-tpu-tower/pcb/netlist.csv"
-
     design.export_netlist(output_path)
